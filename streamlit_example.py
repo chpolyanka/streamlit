@@ -10,13 +10,12 @@ import streamlit.components.v1 as components  # Для вставки HTML
 st.title("Прогноз качества вина")
 st.write("""
 Введите химические характеристики вина, чтобы получить прогноз качества.
-
 """)
 
 # Загрузка данных
 @st.cache_data
 def load_data():
-    data = pd.read_csv("winequality.csv")  # Убедитесь, что файл winequality.csv находится в той же папке
+    data = pd.read_csv("winequality.csv")  
     data['type'] = data['type'].map({'white': 1, 'red': 0})  # Кодируем тип вина: white = 1, red = 0
     X = data.drop("quality", axis=1)
     y = data["quality"]
@@ -27,14 +26,22 @@ X, y = load_data()
 # Разделение данных
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# Обучение модели с заданными параметрами
-model = GradientBoostingRegressor(learning_rate=0.1, max_depth=7, n_estimators=200, random_state=42)
-model.fit(X_train, y_train)
+# Обучение моделей для белого и красного вина
+white_model = GradientBoostingRegressor(learning_rate=0.05, max_depth=7, n_estimators=300, random_state=42)
+red_model = GradientBoostingRegressor(learning_rate=0.1, max_depth=5, n_estimators=150, random_state=42)
 
+# Разделяем данные по типу вина для обучения моделей
+white_data = X_train[X_train["type"] == 1]
+white_target = y_train[X_train["type"] == 1]
+red_data = X_train[X_train["type"] == 0]
+red_target = y_train[X_train["type"] == 0]
 
+# Обучение моделей
+white_model.fit(white_data.drop("type", axis=1), white_target)
+red_model.fit(red_data.drop("type", axis=1), red_target)
 
 # Функция для Bar Plot
-def plot_shap_bar(input_data):
+def plot_shap_bar(input_data, model):
     explainer = shap.TreeExplainer(model)
     shap_values = explainer.shap_values(input_data)
     st.subheader("Bar Plot:")
@@ -44,7 +51,7 @@ def plot_shap_bar(input_data):
     plt.clf()
 
 # Функция для Waterfall Plot
-def plot_shap_waterfall(input_data):
+def plot_shap_waterfall(input_data, model):
     explainer = shap.TreeExplainer(model)
     shap_values = explainer(input_data)
     st.subheader("Waterfall Plot:")
@@ -69,7 +76,7 @@ sulphates = st.sidebar.slider("Sulphates", float(X["sulphates"].min()), float(X[
 alcohol = st.sidebar.slider("Alcohol", float(X["alcohol"].min()), float(X["alcohol"].max()), float(X["alcohol"].mean()))
 type_white = st.sidebar.selectbox("Type", [0, 1], format_func=lambda x: "Белое" if x == 1 else "Красное")
 
-# данные для прогноза
+# Данные для прогноза
 input_data = pd.DataFrame({
     "fixed acidity": [fixed_acidity],
     "volatile acidity": [volatile_acidity],
@@ -87,9 +94,16 @@ input_data = pd.DataFrame({
 
 # Кнопка для выполнения прогноза
 if st.button("Прогнозировать"):
-    prediction = model.predict(input_data)[0]
+    if type_white == 1:
+        model = white_model
+        prediction = model.predict(input_data.drop("type", axis=1))[0]
+    else:
+        model = red_model
+        prediction = model.predict(input_data.drop("type", axis=1))[0]
+
     st.session_state.prediction = prediction
-    st.session_state.input_data = input_data
+    st.session_state.input_data = input_data.drop("type", axis=1)
+    st.session_state.model = model
     st.session_state.show_visualization = True
 
 # Если прогноз уже выполнен, показать результат
@@ -104,6 +118,6 @@ if st.session_state.get("show_visualization", False):
 
     # Генерация выбранного графика
     if visualization_type == "Bar Plot":
-        plot_shap_bar(st.session_state.input_data)
+        plot_shap_bar(st.session_state.input_data, st.session_state.model)
     elif visualization_type == "Waterfall Plot":
-        plot_shap_waterfall(st.session_state.input_data)
+        plot_shap_waterfall(st.session_state.input_data, st.session_state.model)
